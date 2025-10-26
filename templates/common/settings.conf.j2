@@ -1,0 +1,7 @@
+IP={{ HOST }}
+USER={{ USER | default('root') }}
+PORT={{ PORT | default(22) }}
+
+PROJECT={{ PROJECT }}
+BORG_PASSPHRASE={{ BORG_PASSPHRASE }}
+DB_NAME=({{ db_list | default(['sitemanager']) | join(' ') }})
