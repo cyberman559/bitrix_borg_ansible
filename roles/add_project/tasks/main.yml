@@ -1,0 +1,4 @@
+- include_tasks: add.yml
+  vars:
+    PROJECT: "{{ PROJECT }}"
+  tags: add_project

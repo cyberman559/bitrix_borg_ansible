@@ -1,17 +1,21 @@
-- name: Проверяем, что выполняется от root
-  assert:
-    that: ansible_user_id == 'root'
-    fail_msg: "Запусти playbook от root!"
+- name: Debug переменных
+  debug:
+    msg:
+      PROJECT: "{{ PROJECT }}"
+      backup_dir: "{{ backup_dir }}"
 
-- name: Создаём пользователя по проекту
+- name: Проверяем, что playbook выполняется от root
+  assert:
+    that: ansible_become_user == 'root'
+    fail_msg: "Запусти playbook от root или с правами sudo!"
+
+- name: Создаём пользователя проекта
   ansible.builtin.user:
     name: "{{ PROJECT }}"
     state: present
     create_home: true
-
-- name: Удаляем пользователя из группы users (если есть)
-  ansible.builtin.command: "deluser {{ PROJECT }} users"
-  ignore_errors: true
+    groups: ""
+    append: false
 
 - name: Создаём каталог резервных копий
   ansible.builtin.file:
@@ -27,13 +31,14 @@
     path: "/root/.ssh/id_ed25519"
     type: ed25519
     comment: "borg"
+    force: no
   register: server_key
 
 - name: Показываем публичный ключ сервера (для добавления на клиент)
-  debug:
+  ansible.builtin.debug:
     msg: "{{ server_key.public_key }}"
 
-- name: Проверяем или создаём SSH-ключ клиента
+- name: Создаём каталог .ssh для пользователя
   ansible.builtin.file:
     path: "/home/{{ PROJECT }}/.ssh"
     state: directory
@@ -41,7 +46,7 @@
     group: "{{ PROJECT }}"
     mode: "0750"
 
-- name: Создаём клиентский ключ id_ed25519
+- name: Создаём клиентский SSH-ключ id_ed25519
   ansible.builtin.openssh_keypair:
     path: "/home/{{ PROJECT }}/.ssh/id_ed25519"
     type: ed25519
@@ -51,27 +56,23 @@
     mode: "0600"
   register: client_key
 
-- name: Настраиваем authorized_keys
+- name: Настраиваем authorized_keys для пользователя
   ansible.builtin.copy:
-    dest: "/home/{{ username }}/.ssh/authorized_keys"
+    dest: "/home/{{ PROJECT }}/.ssh/authorized_keys"
     content: "{{ client_key.public_key }}"
-    owner: root
+    owner: "{{ PROJECT }}"
     group: "{{ PROJECT }}"
-    mode: "0640"
+    mode: "0600"
 
 - name: Перезапускаем sshd
   ansible.builtin.service:
     name: sshd
     state: restarted
 
-- name: Проверяем, инициализирован ли borg-репозиторий
-  ansible.builtin.command: "borg list {{ backup_dir }}{{ PROJECT }}"
-  register: borg_check
-  failed_when: false
-
 - name: Инициализируем borg-репозиторий (если не существует)
-  ansible.builtin.command: "borg init --encryption=repokey {{ backup_dir }}{{ PROJECT }}"
-  when: borg_check.rc != 0
+  ansible.builtin.command:
+    cmd: "borg init --encryption=repokey {{ backup_dir }}{{ PROJECT }}"
+    creates: "{{ backup_dir }}{{ PROJECT }}/config"
 
 - name: Создаём каталог проекта borg
   ansible.builtin.file:
@@ -79,7 +80,7 @@
     state: directory
     mode: "0700"
 
-- name: Создаём full.yaml
+- name: Создаём full.yaml из шаблона
   ansible.builtin.template:
     src: full.yaml.j2
     dest: "/root/.borg/projects/{{ PROJECT }}/full.yaml"
